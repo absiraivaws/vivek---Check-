@@ -1,0 +1,78 @@
+export enum PaymentType {
+  CASH = 'Cash',
+  QR = 'QR',
+  CARD = 'Card',
+  CHEQUE = 'Cheque'
+}
+
+export enum CollectionStatus {
+  RECEIVED = 'Received',
+  PENDING = 'Pending',
+  REALIZED = 'Realized',
+  RETURNED = 'Returned'
+}
+
+export enum CustomerStatus {
+  ACTIVE = 'Active',
+  INACTIVE = 'Inactive'
+}
+
+export interface Route {
+  route_id: string;
+  route_name: string;
+  description?: string;
+  status: 'Active' | 'Inactive';
+}
+
+export interface Customer {
+  customer_id: string;
+  customer_name: string;
+  address: string;
+  whatsapp_number: string;
+  phone_number: string;
+  business_name: string;
+  location: string; // GPS string
+  credit_limit: number;
+  credit_period_days: number;
+  route_id: string;
+  br_number?: string;
+  date_of_birth?: string;
+  nic?: string;
+  status: CustomerStatus;
+}
+
+export interface Collection {
+  collection_id: string;
+  customer_id: string;
+  payment_type: PaymentType;
+  amount: number;
+  status: CollectionStatus;
+  cheque_number?: string;
+  bank?: string;
+  branch?: string;
+  realize_date?: string; // YYYY-MM-DD
+  collection_date: string; // YYYY-MM-DD
+  cheque_image_base64?: string;
+}
+
+export interface GlobalSettings {
+  default_credit_limit: number;
+  default_credit_period: number;
+  enable_cheque_camera: boolean;
+}
+
+export interface BankStatementEntry {
+  id: string;
+  date: string;
+  cheque_number: string;
+  amount: number;
+  status: 'CLEARED' | 'RETURNED';
+}
+
+// Mock Data Interfaces
+export interface AppData {
+  customers: Customer[];
+  routes: Route[];
+  collections: Collection[];
+  settings: GlobalSettings;
+}

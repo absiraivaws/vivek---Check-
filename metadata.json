@@ -1,0 +1,7 @@
+{
+  "name": "DistriFin",
+  "description": "A comprehensive Distributor Finance Management System for tracking customers, routes, collections, and cheque reconciliation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
