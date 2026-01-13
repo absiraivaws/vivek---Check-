@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, Route, Collection, CollectionStatus, PaymentType, CustomerStatus, GlobalSettings, User, LedgerEntry, AuditLog, UserRole } from './types';
-import { LayoutDashboard, Users, Calculator, FileText, Menu, Plus, RefreshCw, BarChart3, Settings as SettingsIcon, BookOpen, ShieldAlert, LogOut, UserPlus, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Users, Calculator, FileText, Menu, Plus, RefreshCw, BarChart3, Settings as SettingsIcon, BookOpen, ShieldAlert, LogOut, UserPlus, Moon, Sun, ExternalLink } from 'lucide-react';
 import { onAuthStateChanged, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { 
   collection, 
@@ -86,7 +86,6 @@ const App: React.FC = () => {
       setRoutes(snapshot.docs.map(d => ({ ...d.data(), route_id: d.id } as Route)));
     });
 
-    // Modified to match standard app settings structure often used as a fallback or specific path
     const unsubSettings = onSnapshot(doc(db, 'system', 'settings'), (doc) => {
       if (doc.exists()) setSettings(doc.data() as GlobalSettings);
     });
@@ -136,12 +135,13 @@ const App: React.FC = () => {
     try {
       await addDoc(collection(db, 'collections'), {
         ...c,
-        createdBy: user.uid // Required by rules
+        createdBy: user.uid // Match rule: request.resource.data.createdBy == request.auth.uid
       });
       addAuditLog('CREATE_COLLECTION', `Recorded $${c.amount} for customer ${c.customer_id}`);
+      setShowCollectionModal(false);
     } catch (e) {
       console.error("Save collection failed:", e);
-      alert("Error: Permission denied or database error.");
+      alert("Permission Denied: Ensure you are logged in and rules allow writing to /collections.");
     }
   };
 
@@ -151,12 +151,12 @@ const App: React.FC = () => {
     try {
       await setDoc(doc(db, 'customers', customer_id), {
         ...data,
-        createdBy: user.uid // Required by rules
+        createdBy: user.uid // Match rule: request.resource.data.createdBy == request.auth.uid
       });
       addAuditLog('CREATE_CUSTOMER', `Created customer ${c.business_name}`);
     } catch (e) {
       console.error("Add customer failed:", e);
-      alert("Permission denied. You must be the owner to create customers.");
+      alert("Permission Denied: Check /customers security rules for createdBy requirements.");
     }
   };
 
@@ -168,56 +168,65 @@ const App: React.FC = () => {
       addAuditLog('UPDATE_CUSTOMER', `Updated customer ${c.business_name}`);
     } catch (e) {
       console.error("Update customer failed:", e);
-      alert("Permission denied. Only the creator can update this customer.");
+      alert("Permission Denied: Only the creator of this customer record can update it.");
     }
   };
 
   const handleAddRoute = async (r: Route) => {
     if (!user) return;
     const { route_id, ...data } = r;
-    await setDoc(doc(db, 'routes', route_id), data);
-    addAuditLog('CREATE_ROUTE', `Created route ${r.route_name}`);
+    try {
+      await setDoc(doc(db, 'routes', route_id), data);
+      addAuditLog('CREATE_ROUTE', `Created route ${r.route_name}`);
+    } catch (e) {
+      console.error("Route add failed:", e);
+      alert("Permission Denied for /routes.");
+    }
   };
 
   const handleAddUser = async (newUser: User) => {
     if (!user) return;
     const { uid, ...data } = newUser;
-    // Rules for /users/{userId} allow create if isOwner(userId)
-    // This part might still be tricky if Admin is creating for others.
-    // However, the rule says: allow create: if isOwner(userId)
-    // Usually, users create their own profiles.
-    await setDoc(doc(db, 'users', uid), { ...data, id: uid });
     try {
+      await setDoc(doc(db, 'users', uid), { ...data, id: uid });
       await sendPasswordResetEmail(auth, newUser.email);
       addAuditLog('CREATE_USER', `Created user account for ${newUser.name}`);
     } catch (err) {
-      console.error("Setup email failed", err);
+      console.error("User creation/email failed", err);
     }
   };
 
   const handleUpdateUser = async (updatedUser: User) => {
     if (!user) return;
     const { uid, ...data } = updatedUser;
-    await updateDoc(doc(db, 'users', uid), { ...data, id: uid } as any);
-    addAuditLog('UPDATE_USER', `Updated user ${updatedUser.name}`);
+    try {
+      await updateDoc(doc(db, 'users', uid), { ...data, id: uid } as any);
+      addAuditLog('UPDATE_USER', `Updated user ${updatedUser.name}`);
+    } catch (e) {
+       console.error("User update failed", e);
+    }
   };
 
   const handleDeleteUser = async (uid: string) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', uid));
-    addAuditLog('DELETE_USER', `Deleted user with ID ${uid}`);
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+      addAuditLog('DELETE_USER', `Deleted user with ID ${uid}`);
+    } catch (e) {
+       console.error("User deletion failed", e);
+    }
   };
 
   const handleSaveSettings = async (s: GlobalSettings) => {
     if (!user) return;
-    // NOTE: Your current rules don't specifically allow /system/settings.
-    // If it fails, check if you need to add a match for 'system' in Firebase Console.
     try {
+      // Note: Settings path /system/settings might need a specific rule if not covered by a general match
       await setDoc(doc(db, 'system', 'settings'), s);
       addAuditLog('UPDATE_SETTINGS', 'System settings updated');
+      alert("Settings saved successfully.");
     } catch (e) {
       console.error("Settings update failed:", e);
-      alert("Check your Firebase rules for /system/settings path.");
+      alert("Update failed. You may need to add a security rule for /system/settings.");
     }
   };
 
@@ -317,7 +326,32 @@ const App: React.FC = () => {
           {currentView === 'REPORTS' && <Reports collections={collections} customers={customers} routes={routes} />}
           {currentView === 'AUDIT' && <AuditLogs logs={auditLogs} />}
           {currentView === 'LEDGER' && <Ledger entries={ledger} />}
-          {currentView === 'SETTINGS' && <Settings settings={settings} onSave={handleSaveSettings} />}
+          {currentView === 'SETTINGS' && (
+            <div className="space-y-6">
+              <Settings settings={settings} onSave={handleSaveSettings} />
+              {user.role === 'ADMIN' && (
+                <div className="max-w-2xl mx-auto px-4 pb-12">
+                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/30 rounded-2xl p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <ShieldAlert className="text-amber-600" size={24} />
+                        <h3 className="text-lg font-bold text-amber-800 dark:text-amber-200">Database Permissions</h3>
+                      </div>
+                      <p className="text-sm text-amber-700 dark:text-amber-400 mb-6">
+                        If data is not saving, you may need to update your Firestore security rules to allow writes to specific collections or documents.
+                      </p>
+                      <a 
+                        href="https://console.firebase.google.com/u/2/project/studio-3790385784-4778c/firestore/databases/-default-/security/rules" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-6 py-3 bg-amber-600 text-white rounded-xl font-bold shadow-lg hover:bg-amber-700 transition-all gap-2"
+                      >
+                        <ExternalLink size={18} /> Configure Firebase Rules
+                      </a>
+                   </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {showCollectionModal && (
