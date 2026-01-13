@@ -3,12 +3,12 @@ import { getAuth, sendPasswordResetEmail } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAOYgLeA3_QpmgtdHecIhwx9YqOiF5NqY8",
-  authDomain: "studio-3790385784-4778c.firebaseapp.com",
-  projectId: "studio-3790385784-4778c",
-  storageBucket: "studio-3790385784-4778c.firebasestorage.app",
-  messagingSenderId: "965898193440",
-  appId: "1:965898193440:web:def2abeea77a8c327f8a45"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
