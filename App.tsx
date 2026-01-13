@@ -31,7 +31,6 @@ import UserManager from './components/UserManager';
 
 type View = 'DASHBOARD' | 'COLLECTIONS' | 'CUSTOMERS' | 'CHEQUES' | 'RECONCILIATION' | 'REPORTS' | 'SETTINGS' | 'LEDGER' | 'AUDIT' | 'USERS';
 
-// Format for individual rows (full number with separators)
 export const formatFullAmount = (num: number, currency = '$'): string => {
   const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
@@ -40,7 +39,6 @@ export const formatFullAmount = (num: number, currency = '$'): string => {
   return `${currency} ${formatted}`;
 };
 
-// Format for summaries (Mn/Bn shorthand)
 export const formatAmount = (num: number, currency = '$'): string => {
   let val = '';
   if (num >= 1000000000) {
@@ -83,12 +81,14 @@ const App: React.FC = () => {
         const userSnapshot = await getDoc(userDocRef);
         let role: UserRole = 'COLLECTOR';
         let name = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+        let permissions: string[] = [];
         if (userSnapshot.exists()) {
           const userData = userSnapshot.data();
           role = userData.role as UserRole;
           name = userData.name || name;
+          permissions = userData.permissions || [];
         }
-        setUser({ uid: firebaseUser.uid, name, email: firebaseUser.email || '', role });
+        setUser({ uid: firebaseUser.uid, name, email: firebaseUser.email || '', role, permissions });
       } else {
         setUser(null);
       }
@@ -141,7 +141,6 @@ const App: React.FC = () => {
     if (!user) return;
     try {
       const colRef = await addDoc(collection(db, 'collections'), { ...c, createdBy: user.uid });
-      
       const ledgerPayload: Omit<LedgerEntry, 'entry_id'> = {
         date: c.collection_date,
         description: `Collection from ${customers.find(cust => cust.customer_id === c.customer_id)?.business_name || 'Customer'}`,
@@ -151,7 +150,6 @@ const App: React.FC = () => {
         amount: c.amount
       };
       await addDoc(collection(db, 'ledger'), ledgerPayload);
-
       await addDoc(collection(db, 'audit_logs'), {
         timestamp: new Date().toISOString(),
         action: 'CREATE_COLLECTION',
@@ -159,7 +157,6 @@ const App: React.FC = () => {
         userName: user.name,
         details: `Saved ${c.payment_type} collection of ${c.amount} for customer ${c.customer_id}`
       });
-      
       setShowCollectionModal(false);
     } catch (e: any) {
       console.error("Save collection failed:", e);
@@ -168,7 +165,13 @@ const App: React.FC = () => {
   };
 
   const SidebarItem = ({ view, icon: Icon, label, roles }: { view: View; icon: any; label: string; roles?: UserRole[] }) => {
-    if (roles && user && !roles.includes(user.role)) return null;
+    if (user?.role !== 'ADMIN') {
+      const isAllowed = user?.permissions?.includes(view);
+      if (!isAllowed) return null;
+    } else if (roles && !roles.includes(user.role)) {
+      return null;
+    }
+    
     return (
       <button
         onClick={() => { setCurrentView(view); setIsSidebarOpen(false); }}
@@ -215,7 +218,6 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-4 relative">
             <button onClick={() => setDarkMode(!darkMode)} className="p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full">{darkMode ? <Sun size={20} /> : <Moon size={20} />}</button>
-            
             <div className="relative">
               <button 
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -229,7 +231,6 @@ const App: React.FC = () => {
                   <p className="text-[10px] text-gray-500 dark:text-slate-500 leading-tight capitalize">{user.role.toLowerCase()}</p>
                 </div>
               </button>
-              
               {showProfileMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)}></div>
@@ -254,8 +255,7 @@ const App: React.FC = () => {
                 </>
               )}
             </div>
-
-            {currentView === 'COLLECTIONS' && ['ADMIN', 'COLLECTOR'].includes(user.role) && (
+            {currentView === 'COLLECTIONS' && (user.role === 'ADMIN' || user.permissions?.includes('COLLECTIONS')) && (
               <button onClick={() => setShowCollectionModal(true)} className="flex items-center px-4 py-2 bg-brand-600 text-white rounded-md font-bold hover:bg-brand-700 shadow-sm transition-all active:scale-95"><Plus size={18} className="mr-2" /> New Collection</button>
             )}
           </div>
@@ -274,15 +274,22 @@ const App: React.FC = () => {
             </div>
           )}
           {currentView === 'CUSTOMERS' && (
-            <CustomerManager customers={customers} routes={routes} onAddCustomer={async(c)=>{const {customer_id,...d}=c;await setDoc(doc(db,'customers',customer_id),d)}} onEditCustomer={async(c)=>{const {customer_id,...d}=c;await updateDoc(doc(db,'customers',customer_id),d as any)}} onAddRoute={async(r)=>{const {route_id,...d}=r;await setDoc(doc(db,'routes',route_id),d)}} onImport={(list)=>list.forEach(async(c)=>await setDoc(doc(db,'customers',c.customer_id),c))} />
+            <CustomerManager customers={customers} routes={routes} onAddCustomer={async(c)=>{const {customer_id,...d}=c;await setDoc(doc(db,'customers',customer_id),d)}} onEditCustomer={async(c)=>{const {customer_id,...d}=c;await updateDoc(doc(db,'customers',customer_id),d as any)}} onImport={(list)=>list.forEach(async(c)=>await setDoc(doc(db,'customers',c.customer_id),c))} />
           )}
           {currentView === 'CHEQUES' && <ChequeManager collections={collections} settings={settings} />}
-          {currentView === 'RECONCILIATION' && <Reconciliation collections={collections} onReconcile={async (ids, status) => { const batch = writeBatch(db); ids.forEach(id => batch.update(doc(db, 'collections', id), { status })); await batch.commit(); }} settings={settings} />}
+          {currentView === 'RECONCILIATION' && <Reconciliation collections={collections} onReconcile={async (ids, status) => { const batch = writeBatch(db); ids.forEach(id => batch.update(doc(db, 'collections', id), { status })); await batch.commit(); }} />}
           {currentView === 'REPORTS' && <Reports collections={collections} customers={customers} routes={routes} settings={settings} />}
           {currentView === 'LEDGER' && <Ledger entries={ledger} settings={settings} />}
           {currentView === 'AUDIT' && <AuditLogs logs={auditLogs} />}
-          {currentView === 'USERS' && <UserManager users={usersList} onAddUser={async(u)=>{const{uid,...d}=u;await setDoc(doc(db,'users',uid),{...d,id:uid})}} onUpdateUser={async(u)=>await updateDoc(doc(db,'users',u.uid),u as any)} onDeleteUser={async(id)=>await deleteDoc(doc(db,'users',id))} />}
-          {currentView === 'SETTINGS' && <Settings settings={settings} onSave={async(s)=>await setDoc(doc(db,'system','settings'),s)} />}
+          {currentView === 'USERS' && <UserManager users={usersList} onAddUser={async(u)=>{const{uid,...d}=u;await setDoc(doc(db,'users',uid),{...d})}} onUpdateUser={async(u)=>await updateDoc(doc(db,'users',u.uid),u as any)} onDeleteUser={async(id)=>await deleteDoc(doc(db,'users',id))} />}
+          {currentView === 'SETTINGS' && (
+            <Settings 
+              settings={settings} 
+              routes={routes} 
+              onSave={async(s)=>await setDoc(doc(db,'system','settings'),s)} 
+              onAddRoute={async(r)=>{const {route_id,...d}=r;await setDoc(doc(db,'routes',route_id),d)}}
+            />
+          )}
         </div>
 
         {showCollectionModal && (

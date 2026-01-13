@@ -24,6 +24,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  permissions?: string[]; // Array of View IDs like 'DASHBOARD', 'CUSTOMERS', etc.
 }
 
 export interface Route {

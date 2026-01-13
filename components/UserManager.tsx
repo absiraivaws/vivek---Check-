@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
-import { Plus, User as UserIcon, Shield, Mail, X, Save, Edit, Trash2, AlertTriangle, Key, Loader2, CheckCircle } from 'lucide-react';
+import { Plus, User as UserIcon, Shield, Mail, X, Save, Edit, Trash2, AlertTriangle, Key, Loader2, CheckCircle, CheckSquare, Square } from 'lucide-react';
 import { resetUserPassword } from '../services/firebase';
 
 interface UserManagerProps {
@@ -10,23 +10,56 @@ interface UserManagerProps {
   onDeleteUser: (uid: string) => void;
 }
 
+const PAGE_OPTIONS = [
+  { id: 'DASHBOARD', label: 'Dashboard' },
+  { id: 'COLLECTIONS', label: 'Collections' },
+  { id: 'CUSTOMERS', label: 'Customers' },
+  { id: 'CHEQUES', label: 'Cheque Manager' },
+  { id: 'RECONCILIATION', label: 'Reconciliation' },
+  { id: 'LEDGER', label: 'General Ledger' },
+  { id: 'REPORTS', label: 'Reports' },
+  { id: 'USERS', label: 'User Management' },
+  { id: 'AUDIT', label: 'Audit Logs' },
+  { id: 'SETTINGS', label: 'Settings' }
+];
+
 const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUser, onDeleteUser }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({ name: '', email: '', role: 'COLLECTOR' as UserRole });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    email: '', 
+    role: 'COLLECTOR' as UserRole,
+    permissions: [] as string[]
+  });
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [successId, setSuccessId] = useState<string | null>(null);
 
   const handleOpenModal = (user?: User) => {
     if (user) {
       setEditingUser(user);
-      setFormData({ name: user.name, email: user.email, role: user.role });
+      setFormData({ 
+        name: user.name, 
+        email: user.email, 
+        role: user.role,
+        permissions: user.permissions || [] 
+      });
     } else {
       setEditingUser(null);
-      setFormData({ name: '', email: '', role: 'COLLECTOR' });
+      setFormData({ name: '', email: '', role: 'COLLECTOR', permissions: [] });
     }
     setIsModalOpen(true);
+  };
+
+  const togglePermission = (id: string) => {
+    setFormData(prev => {
+      const next = [...prev.permissions];
+      const index = next.indexOf(id);
+      if (index > -1) next.splice(index, 1);
+      else next.push(id);
+      return { ...prev, permissions: next };
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -36,14 +69,16 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
         ...editingUser,
         name: formData.name,
         email: formData.email,
-        role: formData.role
+        role: formData.role,
+        permissions: formData.permissions
       });
     } else {
       onAddUser({
         uid: `U-${Date.now()}`,
         name: formData.name,
         email: formData.email,
-        role: formData.role
+        role: formData.role,
+        permissions: formData.permissions
       });
     }
     setIsModalOpen(false);
@@ -64,7 +99,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
       setTimeout(() => setSuccessId(null), 3000);
     } catch (error) {
       console.error("Failed to send reset email", error);
-      alert("Error sending reset email. Please verify the email address is valid.");
+      alert("Error sending reset email.");
     } finally {
       setResettingId(null);
     }
@@ -118,38 +153,11 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="flex justify-end space-x-2">
-                      <button 
-                        onClick={() => handleSendReset(u.email, u.uid)} 
-                        disabled={resettingId === u.uid}
-                        title="Send Password Reset Email"
-                        className={`p-2 rounded-lg transition-colors ${
-                          successId === u.uid 
-                            ? 'text-green-500 bg-green-50 dark:bg-green-900/20' 
-                            : 'text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        {resettingId === u.uid ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : successId === u.uid ? (
-                          <CheckCircle size={16} />
-                        ) : (
-                          <Key size={16} />
-                        )}
+                      <button onClick={() => handleSendReset(u.email, u.uid)} disabled={resettingId === u.uid} className="p-2 rounded-lg transition-colors text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-800">
+                        {resettingId === u.uid ? <Loader2 size={16} className="animate-spin" /> : successId === u.uid ? <CheckCircle size={16} className="text-green-500" /> : <Key size={16} />}
                       </button>
-                      <button 
-                        onClick={() => handleOpenModal(u)} 
-                        className="p-2 text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Edit User"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button 
-                        onClick={() => setDeleteConfirmId(u.uid)} 
-                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <button onClick={() => handleOpenModal(u)} className="p-2 text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg transition-colors"><Edit size={16} /></button>
+                      <button onClick={() => setDeleteConfirmId(u.uid)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -159,22 +167,23 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
         </div>
       </div>
 
-      {/* Create/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-brand-900/40 dark:bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md border border-brand-100 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl border border-brand-100 dark:border-slate-800 overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-brand-50 dark:border-slate-800">
               <h3 className="text-xl font-bold text-brand-800 dark:text-slate-100">{editingUser ? 'Edit User' : 'Add New User'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-brand-400 hover:bg-brand-50 dark:hover:bg-slate-800 p-2 rounded-full transition-colors"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-brand-700 dark:text-slate-400">Full Name</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className={inputClass} placeholder="John Doe" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-brand-700 dark:text-slate-400">Email Address</label>
-                <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className={inputClass} placeholder="john@example.com" />
+            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-brand-700 dark:text-slate-400">Full Name</label>
+                  <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className={inputClass} />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-brand-700 dark:text-slate-400">Email Address</label>
+                  <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className={inputClass} />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-bold text-brand-700 dark:text-slate-400">System Role</label>
@@ -184,9 +193,33 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
                   <option value="ADMIN">Administrator</option>
                 </select>
               </div>
-              <div className="pt-4">
-                <button type="submit" className="w-full flex justify-center items-center py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg hover:bg-brand-700 transition-all active:scale-95">
-                  <Save size={18} className="mr-2" /> {editingUser ? 'Update Account' : 'Create User Account'}
+
+              {formData.role !== 'ADMIN' && (
+                <div>
+                  <label className="block text-sm font-bold text-brand-700 dark:text-slate-400 mb-3">Page Access Permissions</label>
+                  <div className="grid grid-cols-2 gap-3 p-4 bg-brand-50 dark:bg-slate-800 rounded-xl border border-brand-100 dark:border-slate-700">
+                    {PAGE_OPTIONS.map(opt => (
+                      <button 
+                        key={opt.id} 
+                        type="button" 
+                        onClick={() => togglePermission(opt.id)}
+                        className="flex items-center text-sm gap-2 text-gray-700 dark:text-slate-300 hover:text-brand-600 transition-colors"
+                      >
+                        {formData.permissions.includes(opt.id) ? (
+                          <CheckSquare size={18} className="text-brand-600" />
+                        ) : (
+                          <Square size={18} className="text-gray-400" />
+                        )}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <button type="submit" className="w-full flex justify-center items-center py-4 bg-brand-600 text-white rounded-xl font-bold shadow-lg hover:bg-brand-700 transition-all active:scale-95">
+                  <Save size={20} className="mr-2" /> {editingUser ? 'Update Account' : 'Create User Account'}
                 </button>
               </div>
             </form>
@@ -194,7 +227,6 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 bg-brand-900/40 dark:bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-brand-100 dark:border-slate-800">
@@ -202,7 +234,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, onAddUser, onUpdateUse
               <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><AlertTriangle size={24} /></div>
               <h3 className="text-lg font-bold dark:text-slate-100">Confirm Deletion</h3>
             </div>
-            <p className="text-gray-600 dark:text-slate-400 text-sm mb-6">Are you sure you want to delete this user? This action cannot be undone and will revoke all system access for this individual.</p>
+            <p className="text-gray-600 dark:text-slate-400 text-sm mb-6">Are you sure you want to delete this user? This action cannot be undone.</p>
             <div className="flex space-x-3">
               <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-2 text-gray-500 dark:text-slate-400 font-bold hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancel</button>
               <button onClick={handleDelete} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 transition-all active:scale-95">Delete User</button>
