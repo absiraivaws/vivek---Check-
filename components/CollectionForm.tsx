@@ -1,9 +1,20 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Customer, Route, PaymentType, Collection, CollectionStatus, GlobalSettings } from '../types';
-import { Camera, Loader2, Upload, AlertCircle, MapPin, User } from 'lucide-react';
+import { Camera, Loader2, MapPin, User, Calendar } from 'lucide-react';
 import { analyzeChequeImage } from '../services/geminiService';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { formatFullAmount } from '../App';
+
+const SRI_LANKAN_BANKS = [
+  "Amana Bank PLC (7463)", "Bank of Ceylon (7010)", "Cargills Bank PLC", "Citibank, N.A. (7047)", 
+  "Commercial Bank of Ceylon PLC (7056)", "Deutsche Bank AG (7205)", "DFCC Bank PLC (7454)", 
+  "Habib Bank Ltd (7074)", "Hatton National Bank PLC (7083)", "Indian Bank (7108)", 
+  "Indian Overseas Bank (7117)", "MCB Bank Ltd (7269)", "National Development Bank PLC (7214)", 
+  "Nations Trust Bank PLC (7162)", "Pan Asia Banking Corporation PLC (7311)", "Peoples Bank (7135)", 
+  "Public Bank (7296)", "Sampath Bank PLC (7278)", "Seylan Bank PLC (7287)", 
+  "Standard Chartered Bank (7038)", "State Bank of India (7144)", "Union Bank of Colombo PLC (7302)"
+];
 
 interface CollectionFormProps {
   customers: Customer[];
@@ -27,8 +38,10 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ customers, settings, on
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveStep, setSaveStep] = useState<'IDLE' | 'CONFIRMING'>('IDLE');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'routes'), (snapshot) => {
@@ -36,6 +49,20 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ customers, settings, on
     });
     return () => unsub();
   }, []);
+
+  const handleDatePicker = () => {
+    if (dateInputRef.current) {
+      try {
+        if ('showPicker' in HTMLInputElement.prototype) {
+          dateInputRef.current.showPicker();
+        } else {
+          dateInputRef.current.focus();
+        }
+      } catch (e) {
+        dateInputRef.current.focus();
+      }
+    }
+  };
 
   const filteredCustomers = useMemo(() => {
     return customers
@@ -63,20 +90,20 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ customers, settings, on
         if (data.amount) setAmount(data.amount.toString());
         if (data.date) setRealizeDate(data.date);
       } else {
-        setError("Could not auto-extract details. Please enter manually.");
+        setError("AI could not scan details. Please enter manually.");
       }
     };
     reader.readAsDataURL(file);
   };
 
   const validate = (): boolean => {
-    if (!selectedCustomerId || !amount) {
-      setError("Customer and Amount are required.");
+    if (!selectedCustomerId || !amount || parseFloat(amount) <= 0) {
+      setError("Valid Customer and Amount are required.");
       return false;
     }
     if (paymentType === PaymentType.CHEQUE) {
       if (!chequeNumber || !bank || !realizeDate) {
-        setError("Cheque details incomplete.");
+        setError("Cheque details are incomplete.");
         return false;
       }
     }
@@ -88,137 +115,107 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ customers, settings, on
     setError(null);
     if (!validate()) return;
 
-    const isPending = paymentType === PaymentType.CARD || paymentType === PaymentType.CHEQUE;
+    if (saveStep === 'IDLE') {
+      setSaveStep('CONFIRMING');
+      return;
+    }
 
-    // FIX: Explicitly set every field to either its value or a default (never undefined)
-    const payload: Omit<Collection, 'collection_id'> = {
+    const isPending = paymentType === PaymentType.CARD || paymentType === PaymentType.CHEQUE;
+    onSave({
       customer_id: selectedCustomerId,
       payment_type: paymentType,
       amount: parseFloat(amount),
       status: isPending ? CollectionStatus.PENDING : CollectionStatus.RECEIVED,
       collection_date: new Date().toISOString().split('T')[0],
-      cheque_number: paymentType === PaymentType.CHEQUE ? (chequeNumber || "") : "",
-      bank: paymentType === PaymentType.CHEQUE ? (bank || "") : "",
-      branch: paymentType === PaymentType.CHEQUE ? (branch || "") : "",
-      realize_date: paymentType === PaymentType.CHEQUE ? (realizeDate || "") : "",
+      cheque_number: chequeNumber || "",
+      bank: bank || "",
+      branch: branch || "",
+      realize_date: realizeDate || "",
       cheque_image_base64: chequeImage || ""
-    };
-
-    onSave(payload);
+    });
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-2xl mx-auto my-4 border border-brand-100 dark:border-slate-800">
-      <h2 className="text-2xl font-bold mb-6 text-brand-700 dark:text-brand-400">New Collection</h2>
+    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-2xl mx-auto border border-brand-100 dark:border-slate-800">
+      <h2 className="text-2xl font-bold mb-6 text-brand-700 dark:text-brand-400">Record Payment</h2>
       
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-xl flex items-center border border-red-100 dark:border-red-900/30">
-          <AlertCircle size={20} className="mr-2" />
-          {error}
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-1 flex items-center gap-1"><MapPin size={14}/> 1. Choose Route</label>
-            <select 
-              value={selectedRouteId}
-              onChange={(e) => { setSelectedRouteId(e.target.value); setSelectedCustomerId(''); }}
-              className="mt-1 block w-full rounded-xl border-2 border-brand-100 dark:border-slate-800 p-3 bg-brand-50/30 dark:bg-slate-800 text-gray-800 dark:text-slate-200 outline-none transition-all"
-            >
-              <option value="">Select Route (Show All)</option>
-              {routes.map(r => (
-                <option key={r.route_id} value={r.route_id}>{r.route_name}</option>
-              ))}
+            <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-1 flex items-center gap-1"><MapPin size={14}/> Route</label>
+            <select value={selectedRouteId} onChange={(e) => { setSelectedRouteId(e.target.value); setSelectedCustomerId(''); }} className="w-full rounded-xl p-3 bg-brand-50 dark:bg-slate-800 dark:text-slate-100">
+              <option value="">All Routes</option>
+              {routes.map(r => <option key={r.route_id} value={r.route_id}>{r.route_name}</option>)}
             </select>
           </div>
-
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-1 flex items-center gap-1"><User size={14}/> 2. Choose Customer</label>
-            <select 
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
-              className="mt-1 block w-full rounded-xl border-2 border-brand-100 dark:border-slate-800 p-3 bg-brand-50/30 dark:bg-slate-800 text-gray-800 dark:text-slate-200 outline-none transition-all"
-              required
-            >
+            <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-1 flex items-center gap-1"><User size={14}/> Customer</label>
+            <select required value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)} className="w-full rounded-xl p-3 bg-brand-50 dark:bg-slate-800 dark:text-slate-100">
               <option value="">Select Customer</option>
-              {filteredCustomers.map(c => (
-                <option key={c.customer_id} value={c.customer_id}>
-                  {c.business_name} ({c.customer_name})
-                </option>
-              ))}
+              {filteredCustomers.map(c => <option key={c.customer_id} value={c.customer_id}>{c.business_name}</option>)}
             </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-2">Payment Type</label>
-          <div className="grid grid-cols-4 gap-3">
-            {Object.values(PaymentType).map(type => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setPaymentType(type)}
-                className={`p-3 text-sm font-bold rounded-xl border-2 transition-all ${paymentType === type ? 'bg-brand-500 text-white border-brand-500 shadow-lg' : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-slate-400 border-brand-100 dark:border-slate-700 hover:bg-brand-50'}`}
-              >
-                {type}
-              </button>
-            ))}
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 dark:text-slate-400 mb-1">Amount</label>
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="mt-1 block w-full rounded-xl border-2 border-brand-100 dark:border-slate-800 p-3 bg-brand-50/30 dark:bg-slate-800 text-gray-800 dark:text-slate-200 font-mono text-lg outline-none"
-            placeholder="0.00"
-          />
+          <div className="relative">
+            <input type="number" step="0.01" value={amount} onChange={(e) => { setAmount(e.target.value); setSaveStep('IDLE'); }} className="w-full rounded-xl p-3 font-mono text-lg bg-brand-50 dark:bg-slate-800 dark:text-slate-100 pr-24" placeholder="0.00" />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-600 font-bold text-xs pointer-events-none">
+              {amount ? `$ ${formatFullAmount(parseFloat(amount))}` : ""}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          {Object.values(PaymentType).map(type => (
+            <button key={type} type="button" onClick={() => setPaymentType(type)} className={`flex-1 p-2 text-sm font-bold rounded-xl border-2 ${paymentType === type ? 'bg-brand-500 text-white border-brand-500 shadow-md' : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-slate-400 border-brand-100 dark:border-slate-700'}`}>
+              {type}
+            </button>
+          ))}
         </div>
 
         {paymentType === PaymentType.CHEQUE && (
-          <div className="bg-brand-50/50 dark:bg-slate-800/50 p-4 rounded-2xl border border-brand-100 dark:border-slate-700 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-brand-700 dark:text-brand-400 uppercase tracking-wider">Cheque Details</h3>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center text-sm font-bold text-brand-600 bg-white dark:bg-slate-800 px-3 py-1 rounded-lg border border-brand-200 dark:border-slate-700"
-              >
-                <Camera size={16} className="mr-2" /> Scan
+          <div className="p-4 bg-brand-50 dark:bg-slate-800/50 rounded-2xl border border-brand-100 dark:border-slate-700 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold text-brand-700 dark:text-brand-400 uppercase">Cheque Scan</h3>
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center text-sm font-bold text-brand-600 bg-white px-3 py-1 rounded-lg border border-brand-200">
+                <Camera size={16} className="mr-2" /> Use Camera
               </button>
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
             </div>
-
             {chequeImage && (
-              <div className="relative h-48 w-full bg-white dark:bg-slate-800 rounded-xl overflow-hidden border-2 border-brand-100 dark:border-slate-700">
-                <img src={chequeImage} alt="Cheque" className="h-full w-full object-contain" />
-                {isAnalyzing && (
-                  <div className="absolute inset-0 bg-brand-500/30 backdrop-blur-sm flex items-center justify-center">
-                    <div className="bg-white p-4 rounded-2xl flex items-center text-brand-700 shadow-xl">
-                      <Loader2 className="animate-spin mr-3" /> <span className="font-bold">AI Analyzing...</span>
-                    </div>
-                  </div>
-                )}
+              <div className="relative h-32 bg-white rounded-xl overflow-hidden border">
+                <img src={chequeImage} className="h-full w-full object-contain" alt="Scan" />
+                {isAnalyzing && <div className="absolute inset-0 bg-brand-500/20 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}
               </div>
             )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <input type="text" value={chequeNumber} onChange={(e) => setChequeNumber(e.target.value)} className="p-2 border rounded dark:bg-slate-800 dark:text-slate-100" placeholder="Cheque Number" />
-              <input type="date" value={realizeDate} onChange={(e) => setRealizeDate(e.target.value)} className="p-2 border rounded dark:bg-slate-800 dark:text-slate-100" />
-              <input type="text" value={bank} onChange={(e) => setBank(e.target.value)} className="p-2 border rounded dark:bg-slate-800 dark:text-slate-100" placeholder="Bank Name" />
-              <input type="text" value={branch} onChange={(e) => setBranch(e.target.value)} className="p-2 border rounded dark:bg-slate-800 dark:text-slate-100" placeholder="Branch" />
+            <div className="grid grid-cols-2 gap-2">
+              <input type="text" value={chequeNumber} onChange={e => setChequeNumber(e.target.value)} className="p-2 text-sm border rounded dark:bg-slate-800" placeholder="Cheque No" />
+              <div className="relative cursor-pointer" onClick={handleDatePicker}>
+                <Calendar size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-brand-400 pointer-events-none" />
+                <input ref={dateInputRef} type="date" value={realizeDate} onChange={e => setRealizeDate(e.target.value)} className="w-full p-2 text-sm border rounded dark:bg-slate-800 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+              </div>
+              <select value={bank} onChange={e => setBank(e.target.value)} className="p-2 text-sm border rounded dark:bg-slate-800 col-span-2">
+                <option value="">Select Bank</option>
+                {SRI_LANKAN_BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+              <input type="text" value={branch} onChange={e => setBranch(e.target.value)} className="p-2 text-sm border rounded dark:bg-slate-800 col-span-2" placeholder="Branch" />
             </div>
           </div>
         )}
 
-        <div className="flex justify-end space-x-3 pt-6 border-t border-brand-50 dark:border-slate-800">
-          <button type="button" onClick={onCancel} className="px-6 py-3 text-sm font-bold text-gray-500">Cancel</button>
-          <button type="submit" className="px-8 py-3 bg-brand-600 text-white rounded-xl shadow-lg hover:bg-brand-700 active:scale-95 transition-all font-bold">Save Collection</button>
+        {error && (
+          <div className="p-3 bg-red-50 text-red-600 rounded-lg text-xs font-medium border border-red-100">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" onClick={onCancel} className="px-6 py-3 text-sm font-bold text-gray-500 dark:text-slate-400">Cancel</button>
+          <button type="submit" className={`px-10 py-3 rounded-xl shadow-lg transition-all font-bold ${saveStep === 'CONFIRMING' ? 'bg-amber-500 text-white' : 'bg-brand-600 text-white'}`}>
+            {saveStep === 'CONFIRMING' ? 'Confirm & Save' : 'Save Collection'}
+          </button>
         </div>
       </form>
     </div>

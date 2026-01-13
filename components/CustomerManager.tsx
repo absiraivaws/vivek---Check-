@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Customer, Route, CustomerStatus } from '../types';
-import { MapPin, Edit, Plus, Save, X, Phone, User, Upload, Briefcase, Search, Filter, Info, Trash2 } from 'lucide-react';
+import { MapPin, Edit, Plus, Save, X, Phone, User, Upload, Briefcase, Search, Filter, Trash2, CheckSquare, Square } from 'lucide-react';
 import ImportModal from './ImportModal';
+import { doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 interface CustomerManagerProps {
   customers: Customer[];
@@ -21,6 +23,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
   
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRouteFilter, setSelectedRouteFilter] = useState('ALL');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [formData, setFormData] = useState<Partial<Customer>>({
     status: CustomerStatus.ACTIVE,
@@ -84,6 +87,49 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
       .sort((a, b) => a.business_name.localeCompare(b.business_name));
   }, [customers, searchQuery, selectedRouteFilter]);
 
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredCustomers.length && filteredCustomers.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredCustomers.map(c => c.customer_id)));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} customer(s)?`)) return;
+
+    try {
+      const batch = writeBatch(db);
+      selectedIds.forEach(id => {
+        batch.delete(doc(db, 'customers', id));
+      });
+      await batch.commit();
+      setSelectedIds(new Set());
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+  };
+
+  const handleDeleteSingle = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete customer "${name}"?`)) return;
+    try {
+      await deleteDoc(doc(db, 'customers', id));
+      const next = new Set(selectedIds);
+      next.delete(id);
+      setSelectedIds(next);
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+  };
+
   const inputClass = "mt-1 block w-full rounded-lg border-2 border-brand-100 dark:border-slate-700 p-2 shadow-sm focus:border-brand-500 bg-brand-50 dark:bg-slate-800 transition-colors outline-none dark:text-slate-100";
   const labelClass = "block text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider mb-1";
 
@@ -128,6 +174,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
             </div>
 
             <div className="flex gap-2 w-full lg:w-auto">
+              <button 
+                onClick={handleDeleteSelected} 
+                disabled={selectedIds.size === 0}
+                className={`flex-1 lg:flex-none flex items-center justify-center px-4 py-2 border-2 rounded-xl font-bold transition-all text-sm ${selectedIds.size > 0 ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'}`}
+              >
+                <Trash2 size={16} className="mr-2" /> Delete ({selectedIds.size})
+              </button>
               <button onClick={() => setIsImportOpen(true)} className="flex-1 lg:flex-none flex items-center justify-center px-4 py-2 bg-white dark:bg-slate-800 border-2 border-brand-200 dark:border-slate-700 text-brand-600 dark:text-slate-200 rounded-xl hover:bg-brand-50 dark:hover:bg-slate-700 font-bold transition-all text-sm">
                 <Upload size={16} className="mr-2" /> Import
               </button>
@@ -139,9 +192,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-brand-50 dark:divide-slate-800">
+              <table className="min-w-full table-auto">
                 <thead className="bg-brand-50/50 dark:bg-slate-800/50">
                   <tr>
+                    <th className="px-6 py-4 w-10 text-center">
+                      <button onClick={toggleSelectAll} className="text-brand-500">
+                        {selectedIds.size > 0 && selectedIds.size === filteredCustomers.length ? <CheckSquare size={18} /> : <Square size={18} />}
+                      </button>
+                    </th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Business / Customer</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Route</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Contact</th>
@@ -151,11 +209,16 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-brand-50 dark:divide-slate-800">
                   {filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-brand-400 italic">No customers found.</td>
+                      <td colSpan={5} className="px-6 py-12 text-center text-brand-400 italic">No customers found.</td>
                     </tr>
                   ) : (
                     filteredCustomers.map(c => (
-                      <tr key={c.customer_id} className="hover:bg-brand-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                      <tr key={c.customer_id} className={`hover:bg-brand-50/30 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.has(c.customer_id) ? 'bg-brand-50/50 dark:bg-brand-900/10' : ''}`}>
+                        <td className="px-6 py-4 text-center">
+                          <button onClick={() => toggleSelect(c.customer_id)} className="text-brand-500">
+                            {selectedIds.has(c.customer_id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                          </button>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="bg-brand-100 dark:bg-slate-800 p-2 rounded-lg mr-3">
@@ -179,9 +242,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button onClick={() => openModal(c)} className="text-brand-500 hover:text-brand-700 p-2 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
-                            <Edit size={18} />
-                          </button>
+                          <div className="flex justify-end gap-1">
+                            <button onClick={() => openModal(c)} className="text-brand-500 hover:text-brand-700 p-2 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                              <Edit size={18} />
+                            </button>
+                            <button onClick={() => handleDeleteSingle(c.customer_id, c.business_name)} className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -230,7 +298,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
           </div>
 
           <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800 overflow-hidden">
-            <table className="min-w-full divide-y divide-brand-50 dark:divide-slate-800">
+            <table className="min-w-full table-auto divide-y divide-brand-50 dark:divide-slate-800">
               <thead className="bg-brand-50/50 dark:bg-slate-800/50">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Route Name</th>

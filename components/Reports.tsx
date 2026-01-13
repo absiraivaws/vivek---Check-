@@ -1,202 +1,191 @@
-import React, { useState } from 'react';
-import { Collection, Customer, Route, PaymentType, CollectionStatus } from '../types';
-import { Download, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Collection, Customer, Route, CollectionStatus, GlobalSettings } from '../types';
+import { Download, Search, Calendar, MapPin, ArrowUpDown } from 'lucide-react';
+import { formatAmount, formatFullAmount } from '../App';
 
 interface ReportsProps {
   collections: Collection[];
   customers: Customer[];
   routes: Route[];
+  settings: GlobalSettings;
 }
 
-type ReportType = 'DAILY_COLLECTION' | 'PENDING_CHEQUES' | 'RETURNED_CHEQUES' | 'ROUTE_SUMMARY';
+type SortOrder = 'A-Z' | 'Z-A' | 'NONE';
 
-const Reports: React.FC<ReportsProps> = ({ collections, customers, routes }) => {
-  const [activeReport, setActiveReport] = useState<ReportType>('DAILY_COLLECTION');
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
+const Reports: React.FC<ReportsProps> = ({ collections, customers, routes, settings }) => {
+  const [activeReport, setActiveReport] = useState('DAILY_COLLECTION');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [routeFilter, setRouteFilter] = useState('ALL');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('NONE');
 
-  const toggleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortOrder(prev => prev === 'ASC' ? 'DESC' : 'ASC');
-    } else {
-      setSortKey(key);
-      setSortOrder('ASC');
+  const dateFromRef = useRef<HTMLInputElement>(null);
+  const dateToRef = useRef<HTMLInputElement>(null);
+
+  const handleDatePicker = (ref: React.RefObject<HTMLInputElement>) => {
+    if (ref.current) {
+      try {
+        if ('showPicker' in HTMLInputElement.prototype) {
+          ref.current.showPicker();
+        } else {
+          ref.current.focus();
+        }
+      } catch (e) {
+        ref.current.focus();
+      }
     }
   };
 
-  const SortIcon = ({ col }: { col: string }) => {
-    if (sortKey !== col) return <ArrowUpDown size={12} className="ml-1 opacity-40" />;
-    return sortOrder === 'ASC' ? <ChevronUp size={12} className="ml-1 text-brand-600" /> : <ChevronDown size={12} className="ml-1 text-brand-600" />;
-  };
+  const filteredData = useMemo(() => {
+    let base = [...collections];
+    if (activeReport === 'PENDING_CHEQUES') base = base.filter(c => c.status === CollectionStatus.PENDING);
+    if (activeReport === 'RETURNED_CHEQUES') base = base.filter(c => c.status === CollectionStatus.RETURNED);
 
-  const renderContent = () => {
-    switch(activeReport) {
-      case 'DAILY_COLLECTION': {
-        const data = [...collections].sort((a, b) => {
-          let valA: any = a[sortKey as keyof Collection] || '';
-          let valB: any = b[sortKey as keyof Collection] || '';
-          
-          if (sortKey === 'customer_id') {
-            valA = customers.find(c => c.customer_id === a.customer_id)?.business_name || '';
-            valB = customers.find(c => c.customer_id === b.customer_id)?.business_name || '';
-          }
+    let result = base.filter(c => {
+      const cust = customers.find(cu => cu.customer_id === c.customer_id);
+      const bizName = cust?.business_name || '';
+      const matchesSearch = bizName.toLowerCase().includes(searchQuery.toLowerCase()) || (c.cheque_number && c.cheque_number.includes(searchQuery));
+      const matchesRoute = routeFilter === 'ALL' || cust?.route_id === routeFilter;
+      const matchesDate = (!dateFrom || c.collection_date >= dateFrom) && (!dateTo || c.collection_date <= dateTo);
+      return matchesSearch && matchesRoute && matchesDate;
+    });
 
-          if (valA < valB) return sortOrder === 'ASC' ? -1 : 1;
-          if (valA > valB) return sortOrder === 'ASC' ? 1 : -1;
-          return 0;
-        });
-
-        return (
-          <table className="min-w-full divide-y divide-brand-100">
-            <thead className="bg-brand-50/50">
-              <tr>
-                <th onClick={() => toggleSort('collection_date')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                  <div className="flex items-center">Date <SortIcon col="collection_date" /></div>
-                </th>
-                <th onClick={() => toggleSort('customer_id')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                  <div className="flex items-center">Customer <SortIcon col="customer_id" /></div>
-                </th>
-                <th onClick={() => toggleSort('payment_type')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                  <div className="flex items-center">Type <SortIcon col="payment_type" /></div>
-                </th>
-                <th onClick={() => toggleSort('amount')} className="px-6 py-3 text-right text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                  <div className="flex items-center justify-end">Amount <SortIcon col="amount" /></div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-brand-50 bg-white">
-              {data.map(c => (
-                <tr key={c.collection_id} className="hover:bg-brand-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-900">{c.collection_date}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500 font-medium">{customers.find(cust => cust.customer_id === c.customer_id)?.business_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{c.payment_type}</td>
-                  <td className="px-6 py-4 text-sm text-brand-900 text-right font-bold">${c.amount.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        );
-      }
-      case 'PENDING_CHEQUES':
-      case 'RETURNED_CHEQUES': {
-        const targetStatus = activeReport === 'PENDING_CHEQUES' ? CollectionStatus.PENDING : CollectionStatus.RETURNED;
-        const data = collections.filter(c => c.payment_type === PaymentType.CHEQUE && c.status === targetStatus)
-          .sort((a, b) => {
-            let valA: any = a[sortKey as keyof Collection] || '';
-            let valB: any = b[sortKey as keyof Collection] || '';
-            if (valA < valB) return sortOrder === 'ASC' ? -1 : 1;
-            if (valA > valB) return sortOrder === 'ASC' ? 1 : -1;
-            return 0;
-          });
-
-        return (
-          <table className="min-w-full divide-y divide-brand-100">
-            <thead className="bg-brand-50/50">
-              <tr>
-                <th onClick={() => toggleSort('cheque_number')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center">Cheque No <SortIcon col="cheque_number" /></div>
-                </th>
-                <th onClick={() => toggleSort('bank')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center">Bank <SortIcon col="bank" /></div>
-                </th>
-                <th onClick={() => toggleSort('realize_date')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center">Realize Date <SortIcon col="realize_date" /></div>
-                </th>
-                <th onClick={() => toggleSort('amount')} className="px-6 py-3 text-right text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center justify-end">Amount <SortIcon col="amount" /></div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-brand-50 bg-white">
-              {data.map(c => (
-                <tr key={c.collection_id} className="hover:bg-brand-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-900 font-bold">{c.cheque_number}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{c.bank}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{c.realize_date}</td>
-                  <td className="px-6 py-4 text-sm text-brand-900 text-right font-bold">${c.amount.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        );
-      }
-      case 'ROUTE_SUMMARY': {
-        const summary = routes.map(r => {
-            const routeCustomers = customers.filter(c => c.route_id === r.route_id).map(c => c.customer_id);
-            const routeCollections = collections.filter(c => routeCustomers.includes(c.customer_id));
-            const total = routeCollections.reduce((sum, c) => sum + c.amount, 0);
-            return { ...r, total, customerCount: routeCustomers.length };
-        }).sort((a, b) => {
-          let valA: any = (a as any)[sortKey] || 0;
-          let valB: any = (b as any)[sortKey] || 0;
-          if (valA < valB) return sortOrder === 'ASC' ? -1 : 1;
-          if (valA > valB) return sortOrder === 'ASC' ? 1 : -1;
-          return 0;
-        });
-
-        return (
-          <table className="min-w-full divide-y divide-brand-100">
-            <thead className="bg-brand-50/50">
-              <tr>
-                <th onClick={() => toggleSort('route_name')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center">Route <SortIcon col="route_name" /></div>
-                </th>
-                <th onClick={() => toggleSort('customerCount')} className="px-6 py-3 text-left text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center">Customers <SortIcon col="customerCount" /></div>
-                </th>
-                <th onClick={() => toggleSort('total')} className="px-6 py-3 text-right text-xs font-bold text-brand-700 uppercase cursor-pointer hover:bg-brand-100">
-                   <div className="flex items-center justify-end">Total Collected <SortIcon col="total" /></div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-brand-50 bg-white">
-              {summary.map(r => (
-                <tr key={r.route_id} className="hover:bg-brand-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-900 font-bold">{r.route_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{r.customerCount}</td>
-                  <td className="px-6 py-4 text-sm text-brand-900 text-right font-extrabold">${r.total.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        );
-      }
-      default: return null;
+    if (sortOrder === 'A-Z') {
+      result.sort((a, b) => {
+        const nameA = customers.find(c => c.customer_id === a.customer_id)?.business_name || '';
+        const nameB = customers.find(c => c.customer_id === b.customer_id)?.business_name || '';
+        return nameA.localeCompare(nameB);
+      });
+    } else if (sortOrder === 'Z-A') {
+      result.sort((a, b) => {
+        const nameA = customers.find(c => c.customer_id === a.customer_id)?.business_name || '';
+        const nameB = customers.find(c => c.customer_id === b.customer_id)?.business_name || '';
+        return nameB.localeCompare(nameA);
+      });
     }
+
+    return result;
+  }, [collections, searchQuery, activeReport, customers, routeFilter, dateFrom, dateTo, sortOrder]);
+
+  const stats = useMemo(() => {
+    const total = filteredData.reduce((s, c) => s + c.amount, 0);
+    return { count: filteredData.length, total };
+  }, [filteredData]);
+
+  const toggleSort = () => {
+    if (sortOrder === 'NONE') setSortOrder('A-Z');
+    else if (sortOrder === 'A-Z') setSortOrder('Z-A');
+    else setSortOrder('NONE');
   };
 
   return (
     <div className="p-4 h-full overflow-y-auto pb-20">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-brand-800">Reports</h1>
-        <button className="flex items-center px-4 py-2 bg-white border border-brand-200 rounded-xl shadow-sm text-sm font-bold text-brand-600 hover:bg-brand-50 transition-all">
-          <Download size={16} className="mr-2" /> Export PDF
-        </button>
-      </div>
-
-      <div className="mb-6 flex overflow-x-auto space-x-2 pb-2">
-        {[
-          { id: 'DAILY_COLLECTION', label: 'Daily Collection' },
-          { id: 'PENDING_CHEQUES', label: 'Pending Cheques' },
-          { id: 'RETURNED_CHEQUES', label: 'Returned Cheques' },
-          { id: 'ROUTE_SUMMARY', label: 'Route Summary' },
-        ].map((rep) => (
-          <button
-            key={rep.id}
-            onClick={() => { setActiveReport(rep.id as ReportType); setSortKey(''); }}
-            className={`whitespace-nowrap px-6 py-2 rounded-xl text-sm font-bold transition-all border-2 ${
-              activeReport === rep.id ? 'bg-brand-600 text-white border-brand-600 shadow-md scale-105' : 'bg-white text-brand-600 border-brand-100 hover:bg-brand-50'
-            }`}
-          >
-            {rep.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="bg-white shadow-sm rounded-2xl overflow-hidden border border-brand-100">
-        <div className="overflow-x-auto">
-          {renderContent()}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-brand-800 dark:text-slate-100">Financial Reports</h1>
+          <p className="text-sm text-gray-500">View and export collection data</p>
         </div>
+        <div className="text-right">
+           <div className="text-xs font-bold text-brand-500 uppercase">Filtered Total</div>
+           <div className="text-xl font-extrabold text-brand-800 dark:text-brand-400">{formatAmount(stats.total, settings.currency_code)}</div>
+           <div className="text-[10px] text-gray-400">{stats.count} transactions</div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Report View</label>
+            <select value={activeReport} onChange={e => setActiveReport(e.target.value)} className="w-full p-2 text-sm rounded-xl border bg-brand-50 dark:bg-slate-800 dark:text-slate-100 outline-none">
+              <option value="DAILY_COLLECTION">Daily Collection</option>
+              <option value="PENDING_CHEQUES">Pending Cheques</option>
+              <option value="RETURNED_CHEQUES">Returned Cheques</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Route Filter</label>
+            <select value={routeFilter} onChange={e => setRouteFilter(e.target.value)} className="w-full p-2 text-sm rounded-xl border bg-brand-50 dark:bg-slate-800 dark:text-slate-100 outline-none">
+              <option value="ALL">All Routes</option>
+              {routes.map(r => <option key={r.route_id} value={r.route_id}>{r.route_name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1 col-span-1 md:col-span-2">
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Date Range</label>
+            <div className="flex gap-2">
+              <div className="relative flex-1 cursor-pointer" onClick={() => handleDatePicker(dateFromRef)}>
+                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-400 pointer-events-none" />
+                <input 
+                  ref={dateFromRef} 
+                  type="date" 
+                  value={dateFrom} 
+                  onChange={e => setDateFrom(e.target.value)} 
+                  className="w-full pl-9 pr-2 py-2 text-xs rounded-xl border bg-brand-50 dark:bg-slate-800 dark:text-slate-100 cursor-pointer" 
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+              <div className="relative flex-1 cursor-pointer" onClick={() => handleDatePicker(dateToRef)}>
+                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-400 pointer-events-none" />
+                <input 
+                  ref={dateToRef} 
+                  type="date" 
+                  value={dateTo} 
+                  onChange={e => setDateTo(e.target.value)} 
+                  className="w-full pl-9 pr-2 py-2 text-xs rounded-xl border bg-brand-50 dark:bg-slate-800 dark:text-slate-100 cursor-pointer" 
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="lg:col-span-3 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-400" size={16} />
+            <input 
+              type="text" placeholder="Search by customer or cheque number..." value={searchQuery} 
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border bg-brand-50 dark:bg-slate-800 dark:text-slate-100 outline-none"
+            />
+          </div>
+          <button className="flex items-center justify-center bg-brand-600 text-white rounded-xl font-bold text-sm shadow-md hover:bg-brand-700 transition-all"><Download size={16} className="mr-2" /> Export PDF</button>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden border border-brand-100 dark:border-slate-800">
+        <table className="min-w-full divide-y divide-brand-100 dark:divide-slate-800">
+          <thead className="bg-brand-50/50 dark:bg-slate-800/50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Date</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase cursor-pointer flex items-center gap-1 group"
+                onClick={toggleSort}
+              >
+                Customer / Route 
+                <ArrowUpDown size={12} className={`transition-opacity ${sortOrder === 'NONE' ? 'opacity-30 group-hover:opacity-100' : 'opacity-100'}`} />
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Payment</th>
+              <th className="px-6 py-3 text-right text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-brand-50 dark:divide-slate-800">
+            {filteredData.map(c => {
+              const cust = customers.find(cu => cu.customer_id === c.customer_id);
+              const route = routes.find(r => r.route_id === cust?.route_id);
+              return (
+                <tr key={c.collection_id} className="hover:bg-brand-50 dark:hover:bg-slate-800 border-b dark:border-slate-800 last:border-0">
+                  <td className="px-6 py-4 text-xs font-medium dark:text-slate-300">{c.collection_date}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-bold dark:text-slate-100">{cust?.business_name || 'N/A'}</div>
+                    <div className="text-[10px] text-gray-400 flex items-center"><MapPin size={8} className="mr-1"/> {route?.route_name || 'No Route'}</div>
+                  </td>
+                  <td className="px-6 py-4 text-xs text-gray-500 dark:text-slate-400">{c.payment_type}</td>
+                  <td className="px-6 py-4 text-sm text-brand-900 dark:text-brand-400 text-right font-extrabold font-mono">{formatFullAmount(c.amount, settings.currency_code)}</td>
+                </tr>
+              );
+            })}
+            {filteredData.length === 0 && (
+              <tr><td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No matching records found.</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

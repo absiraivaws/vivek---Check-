@@ -64,24 +64,24 @@ export interface Collection {
   realize_date?: string; // YYYY-MM-DD
   collection_date: string; // YYYY-MM-DD
   cheque_image_base64?: string;
-  createdBy?: string; // User UID - camelCase to match rules
+  createdBy?: string; 
 }
 
 export interface LedgerEntry {
   entry_id: string;
   date: string;
   description: string;
-  reference_id: string; // Collection ID or Cheque ID
-  debit_account: string; // e.g., 'Cash', 'Bank', 'ChequeInHand'
-  credit_account: string; // e.g., 'Customer:C001', 'Sales'
+  reference_id: string; 
+  debit_account: string; 
+  credit_account: string; 
   amount: number;
 }
 
 export interface AuditLog {
   log_id: string;
   timestamp: string;
-  action: string; // 'CREATE_COLLECTION', 'RECONCILE', etc.
-  performedBy: string; // User UID - camelCase to match rules
+  action: string; 
+  performedBy: string; 
   userName?: string;
   details: string;
 }
@@ -90,6 +90,8 @@ export interface GlobalSettings {
   default_credit_limit: number;
   default_credit_period: number;
   enable_cheque_camera: boolean;
+  currency_code: string;
+  country: string;
 }
 
 export interface BankStatementEntry {
@@ -98,14 +100,4 @@ export interface BankStatementEntry {
   cheque_number: string;
   amount: number;
   status: 'CLEARED' | 'RETURNED';
-}
-
-// Mock Data Interfaces
-export interface AppData {
-  customers: Customer[];
-  routes: Route[];
-  collections: Collection[];
-  settings: GlobalSettings;
-  ledger: LedgerEntry[];
-  auditLogs: AuditLog[];
 }
