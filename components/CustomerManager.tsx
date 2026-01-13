@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Customer, Route, CustomerStatus } from '../types';
-import { MapPin, Edit, Plus, Save, X, Phone, User, Upload, Briefcase, Search, Filter, ArrowUpDown, Info } from 'lucide-react';
+import { MapPin, Edit, Plus, Save, X, Phone, User, Upload, Briefcase, Search, Filter, Info, Trash2 } from 'lucide-react';
 import ImportModal from './ImportModal';
 
 interface CustomerManagerProps {
@@ -17,8 +17,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
   
-  // Search and Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRouteFilter, setSelectedRouteFilter] = useState('ALL');
 
@@ -27,7 +27,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
     location: '',
   });
 
-  const [newRouteName, setNewRouteName] = useState('');
+  const [routeFormData, setRouteFormData] = useState<Partial<Route>>({
+    route_name: '',
+    status: 'Active'
+  });
 
   const openModal = (customer?: Customer) => {
     if (customer) {
@@ -57,18 +60,28 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
     setIsModalOpen(false);
   };
 
-  // Filtered customers logic
+  const handleSaveRoute = (e: React.FormEvent) => {
+    e.preventDefault();
+    const routeData = {
+      ...routeFormData,
+      route_id: editingRoute ? editingRoute.route_id : `R${Date.now()}`,
+    } as Route;
+    onAddRoute(routeData);
+    setRouteFormData({ route_name: '', status: 'Active' });
+    setEditingRoute(null);
+  };
+
   const filteredCustomers = useMemo(() => {
-    return customers.filter(c => {
-      const matchesSearch = 
-        c.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.phone_number.includes(searchQuery);
-      
-      const matchesRoute = selectedRouteFilter === 'ALL' || c.route_id === selectedRouteFilter;
-      
-      return matchesSearch && matchesRoute;
-    });
+    return customers
+      .filter(c => {
+        const matchesSearch = 
+          c.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.phone_number.includes(searchQuery);
+        const matchesRoute = selectedRouteFilter === 'ALL' || c.route_id === selectedRouteFilter;
+        return matchesSearch && matchesRoute;
+      })
+      .sort((a, b) => a.business_name.localeCompare(b.business_name));
   }, [customers, searchQuery, selectedRouteFilter]);
 
   const inputClass = "mt-1 block w-full rounded-lg border-2 border-brand-100 dark:border-slate-700 p-2 shadow-sm focus:border-brand-500 bg-brand-50 dark:bg-slate-800 transition-colors outline-none dark:text-slate-100";
@@ -89,7 +102,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
 
       {activeTab === 'CUSTOMERS' && (
         <div className="space-y-4">
-          {/* Action Bar */}
           <div className="flex flex-col lg:flex-row gap-4 items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800">
             <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full lg:w-auto">
               <div className="relative flex-1 max-w-md">
@@ -125,7 +137,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
             </div>
           </div>
 
-          {/* Customer Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-brand-50 dark:divide-slate-800">
@@ -134,14 +145,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Business / Customer</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Route</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Contact</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Identifiers</th>
                     <th className="px-6 py-4 text-right text-xs font-bold text-brand-700 dark:text-slate-400 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-brand-50 dark:divide-slate-800">
                   {filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-brand-400 italic">No customers found matching your search.</td>
+                      <td colSpan={4} className="px-6 py-12 text-center text-brand-400 italic">No customers found.</td>
                     </tr>
                   ) : (
                     filteredCustomers.map(c => (
@@ -168,10 +178,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
                             {c.phone_number}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-xs text-gray-500 dark:text-slate-400">BR: <span className="font-medium text-gray-700 dark:text-slate-200">{c.br_number || 'N/A'}</span></div>
-                          <div className="text-xs text-gray-500 dark:text-slate-400">NIC: <span className="font-medium text-gray-700 dark:text-slate-200">{c.nic || 'N/A'}</span></div>
-                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <button onClick={() => openModal(c)} className="text-brand-500 hover:text-brand-700 p-2 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
                             <Edit size={18} />
@@ -187,7 +193,68 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
         </div>
       )}
 
-      {/* Route Manager omitted for brevity, logic remains same but needs dark styles */}
+      {activeTab === 'ROUTES' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800">
+            <h3 className="text-lg font-bold text-brand-800 dark:text-slate-100 mb-4">{editingRoute ? 'Edit Route' : 'Add New Route'}</h3>
+            <form onSubmit={handleSaveRoute} className="space-y-4">
+              <div>
+                <label className={labelClass}>Route Name (e.g. Route 01)</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={routeFormData.route_name} 
+                  onChange={e => setRouteFormData({...routeFormData, route_name: e.target.value})} 
+                  className={inputClass} 
+                  placeholder="Route 01"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Status</label>
+                <select 
+                  value={routeFormData.status} 
+                  onChange={e => setRouteFormData({...routeFormData, status: e.target.value as any})} 
+                  className={inputClass}
+                >
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <button type="submit" className="w-full py-3 bg-brand-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-brand-700 transition-all">
+                <Save size={18} /> {editingRoute ? 'Update Route' : 'Save Route'}
+              </button>
+              {editingRoute && (
+                <button type="button" onClick={() => {setEditingRoute(null); setRouteFormData({route_name: '', status: 'Active'})}} className="w-full py-2 text-gray-500 font-medium">Cancel</button>
+              )}
+            </form>
+          </div>
+
+          <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-brand-100 dark:border-slate-800 overflow-hidden">
+            <table className="min-w-full divide-y divide-brand-50 dark:divide-slate-800">
+              <thead className="bg-brand-50/50 dark:bg-slate-800/50">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Route Name</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Status</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-brand-700 dark:text-slate-400 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-brand-50 dark:divide-slate-800">
+                {routes.map(r => (
+                  <tr key={r.route_id} className="hover:bg-brand-50/30 dark:hover:bg-slate-800/30">
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-slate-200">{r.route_name}</td>
+                    <td className="px-6 py-4 text-sm">
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${r.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{r.status}</span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button onClick={() => {setEditingRoute(r); setRouteFormData(r)}} className="text-brand-500 p-2 hover:bg-brand-50 dark:hover:bg-slate-800 rounded-lg"><Edit size={16}/></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-brand-900/40 dark:bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -198,26 +265,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
             </div>
             <form onSubmit={handleSaveCustomer} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* Basic Personal Info */}
                 <div className="space-y-4">
                   <h4 className="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-2"><User size={16}/> Personal Information</h4>
                   <div><label className={labelClass}>Customer Name</label><input required type="text" value={formData.customer_name || ''} onChange={e => setFormData({...formData, customer_name: e.target.value})} className={inputClass} /></div>
                   <div><label className={labelClass}>Phone Number</label><input required type="text" value={formData.phone_number || ''} onChange={e => setFormData({...formData, phone_number: e.target.value})} className={inputClass} /></div>
                   <div><label className={labelClass}>WhatsApp Number</label><input type="text" value={formData.whatsapp_number || ''} onChange={e => setFormData({...formData, whatsapp_number: e.target.value})} className={inputClass} /></div>
-                  <div><label className={labelClass}>NIC Number</label><input type="text" value={formData.nic || ''} onChange={e => setFormData({...formData, nic: e.target.value})} className={inputClass} placeholder="NIC or Passport" /></div>
-                  <div><label className={labelClass}>Date of Birth</label><input type="date" value={formData.date_of_birth || ''} onChange={e => setFormData({...formData, date_of_birth: e.target.value})} className={inputClass} /></div>
                 </div>
 
-                {/* Business Info */}
                 <div className="space-y-4">
                   <h4 className="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-2"><Briefcase size={16}/> Business Details</h4>
                   <div><label className={labelClass}>Shop/Business Name</label><input required type="text" value={formData.business_name || ''} onChange={e => setFormData({...formData, business_name: e.target.value})} className={inputClass} /></div>
                   <div><label className={labelClass}>BR Number</label><input type="text" value={formData.br_number || ''} onChange={e => setFormData({...formData, br_number: e.target.value})} className={inputClass} placeholder="Reg Number" /></div>
-                  <div><label className={labelClass}>Business Address</label><textarea value={formData.business_address || ''} onChange={e => setFormData({...formData, business_address: e.target.value})} className={inputClass + " h-24"} /></div>
                   <div><label className={labelClass}>Residential Address</label><textarea value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className={inputClass + " h-24"} /></div>
                 </div>
 
-                {/* Operations & Finance */}
                 <div className="space-y-4">
                   <h4 className="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-2"><MapPin size={16}/> Route & Credit</h4>
                   <div><label className={labelClass}>Assigned Route</label>
@@ -227,16 +288,11 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, routes, on
                     </select>
                   </div>
                   <div><label className={labelClass}>Credit Limit ($)</label><input type="number" value={formData.credit_limit || ''} onChange={e => setFormData({...formData, credit_limit: Number(e.target.value)})} className={inputClass} /></div>
-                  <div><label className={labelClass}>Credit Period (Days)</label><input type="number" value={formData.credit_period_days || ''} onChange={e => setFormData({...formData, credit_period_days: Number(e.target.value)})} className={inputClass} /></div>
                   <div><label className={labelClass}>Status</label>
                     <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as CustomerStatus})} className={inputClass}>
                       <option value={CustomerStatus.ACTIVE}>Active</option>
                       <option value={CustomerStatus.INACTIVE}>Inactive</option>
                     </select>
-                  </div>
-                  <div className="p-3 bg-brand-50 dark:bg-slate-800 rounded-xl border border-brand-100 dark:border-slate-700 flex items-start gap-2">
-                    <Info size={16} className="text-brand-500 mt-1 shrink-0" />
-                    <p className="text-[10px] text-brand-700 dark:text-slate-400 leading-tight">Missing identifiers like NIC or BR Number can be added later by editing this profile.</p>
                   </div>
                 </div>
               </div>
