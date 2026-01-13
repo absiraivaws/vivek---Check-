@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Route, Collection, CollectionStatus, PaymentType, CustomerStatus, GlobalSettings, User, LedgerEntry, AuditLog, UserRole } from './types';
 import { LayoutDashboard, Users, Calculator, FileText, Menu, Plus, RefreshCw, BarChart3, Settings as SettingsIcon, Bell, BookOpen, ShieldAlert, LogOut, UserPlus, Moon, Sun } from 'lucide-react';
+import { onAuthStateChanged, signOut, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from './services/firebase';
+
 import Dashboard from './components/Dashboard';
 import CollectionForm from './components/CollectionForm';
 import ChequeManager from './components/ChequeManager';
@@ -34,14 +37,14 @@ const INITIAL_ROUTES: Route[] = [
 ];
 
 const INITIAL_USERS: User[] = [
-  { uid: 'U-001', name: 'System Admin', email: 'admin@distrifin.com', role: 'ADMIN' },
-  { uid: 'U-002', name: 'Finance Manager', email: 'accounts@distrifin.com', role: 'ACCOUNTS' }
+  { uid: 'U-001', name: 'System Admin', email: 'admin@distrifin.com', role: 'ADMIN' }
 ];
 
 type View = 'DASHBOARD' | 'COLLECTIONS' | 'CUSTOMERS' | 'CHEQUES' | 'RECONCILIATION' | 'REPORTS' | 'SETTINGS' | 'LEDGER' | 'AUDIT' | 'USERS';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [currentView, setCurrentView] = useState<View>('DASHBOARD');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
@@ -54,6 +57,38 @@ const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<GlobalSettings>({ default_credit_limit: 50000, default_credit_period: 30, enable_cheque_camera: true });
   const [usersList, setUsersList] = useState<User[]>(INITIAL_USERS);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const email = firebaseUser.email?.toLowerCase() || '';
+        
+        // Map roles based on email
+        let role: UserRole = 'COLLECTOR';
+        
+        // Explicit admin access for you
+        if (email === 'absiraiva@gmail.com') {
+          role = 'ADMIN';
+        } else if (email.includes('admin')) {
+          role = 'ADMIN';
+        } else if (email.includes('accounts')) {
+          role = 'ACCOUNTS';
+        }
+
+        setUser({
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          email: firebaseUser.email || '',
+          role: role
+        });
+      } else {
+        setUser(null);
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (darkMode) {
@@ -79,15 +114,22 @@ const App: React.FC = () => {
     addAuditLog('LOGIN', 'User logged into the system');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     addAuditLog('LOGOUT', 'User logged out');
+    await signOut(auth);
     setUser(null);
     setCurrentView('DASHBOARD');
   };
 
-  const handleAddUser = (newUser: User) => {
+  const handleAddUser = async (newUser: User) => {
     setUsersList([...usersList, newUser]);
-    addAuditLog('CREATE_USER', `Created user ${newUser.name} as ${newUser.role}`);
+    try {
+      await sendPasswordResetEmail(auth, newUser.email);
+      addAuditLog('CREATE_USER', `Created user ${newUser.name}. Setup email sent to ${newUser.email}`);
+    } catch (err) {
+      console.error("Failed to send setup email", err);
+      addAuditLog('CREATE_USER', `Created user ${newUser.name}. Setup email failed.`);
+    }
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -101,9 +143,9 @@ const App: React.FC = () => {
     if (userToDelete) addAuditLog('DELETE_USER', `Deleted user ${userToDelete.name}`);
   };
 
-  const handleImportCustomers = (imported: Customer[]) => {
-    setCustomers(prev => [...prev, ...imported]);
-    addAuditLog('IMPORT_CUSTOMERS', `Imported ${imported.length} customers via bulk upload`);
+  const handleImportCustomers = (newCustomers: Customer[]) => {
+    setCustomers(prev => [...prev, ...newCustomers]);
+    addAuditLog('IMPORT_CUSTOMERS', `Imported ${newCustomers.length} customers into the system`);
   };
 
   const SidebarItem = ({ view, icon: Icon, label, roles }: { view: View; icon: any; label: string; roles?: UserRole[] }) => {
@@ -120,6 +162,14 @@ const App: React.FC = () => {
       </button>
     );
   };
+
+  if (isAuthLoading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-brand-50 dark:bg-slate-950">
+        <RefreshCw className="animate-spin text-brand-600" size={48} />
+      </div>
+    );
+  }
 
   if (!user) return <Login onLogin={handleLogin} />;
 
@@ -143,7 +193,7 @@ const App: React.FC = () => {
           <SidebarItem view="SETTINGS" icon={SettingsIcon} label="Settings" roles={['ADMIN']} />
         </nav>
         <div className="absolute bottom-0 w-full border-t border-gray-200 dark:border-slate-800 p-4">
-          <button onClick={handleLogout} className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-md transition-colors">
+          <button onClick={handleLogout} className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-md transition-colors font-bold">
             <LogOut size={16} className="mr-2" /> Logout
           </button>
         </div>
